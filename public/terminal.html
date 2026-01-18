@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terminal Payment | Peter's Garage</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0d0d0d;
+      color: #e6e6e6;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      font-weight: 300;
+      letter-spacing: 1px;
+    }
+
+    .panel {
+      background: #1a1a1a;
+      padding: 30px;
+      border-radius: 12px;
+      width: 360px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.6);
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      border: none;
+      background: #333;
+      color: #fff;
+      font-size: 16px;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #007bff;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background: #0a84ff;
+    }
+
+    #status {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #9ad0ff;
+      white-space: pre-line;
+      min-height: 60px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Peter's Garage Terminal</h1>
+
+  <div class="panel">
+    <input id="amount" type="number" placeholder="Enter amount (NOK)" />
+
+    <button onclick="startPayment()">Pay on Terminal</button>
+
+    <div id="status">Initializing…</div>
+  </div>
+
+  <script src="https://js.stripe.com/terminal/v1/"></script>
+  <script>
+    let terminal;
+
+    function log(msg) {
+      document.getElementById("status").innerText += "\\n" + msg;
+    }
+
+    async function fetchConnectionToken() {
+      log("Requesting connection token…");
+      const res = await fetch("/api/pay", { method: "POST" });
+      const data = await res.json();
+      return data.secret;
+    }
+
+    async function initTerminal() {
+      log("Initializing terminal…");
+
+      terminal = StripeTerminal.create({
+        onFetchConnectionToken: fetchConnectionToken,
+        onUnexpectedReaderDisconnect: () => log("Reader disconnected!")
+      });
+
+      const discover = await terminal.discoverReaders({ simulated: false });
+
+      if (discover.error) {
+        log("Discover error: " + discover.error.message);
+        return;
+      }
+
+      if (discover.discoveredReaders.length === 0) {
+        log("No readers found.");
+        return;
+      }
+
+      const reader = discover.discoveredReaders[0];
+      log("Connecting to: " + reader.label);
+
+      const connectResult = await terminal.connectReader(reader);
+
+      if (connectResult.error) {
+        log("Connect error: " + connectResult.error.message);
+        return;
+      }
+
+      log("Connected to reader: " + reader.label);
+      log("Ready for payment.");
+    }
+
+    async function startPayment() {
+      const amount = Number(document.getElementById("amount").value);
+      if (!amount) {
+        log("Enter a valid amount.");
+        return;
+      }
+
+      log("Creating payment intent…");
+
+      const res = await fetch("/api/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount })
+      });
+
+      const data = await res.json();
+
+      log("Processing payment…");
+
+      const result = await terminal.processPayment(data.paymentIntent);
+
+      if (result.error) {
+        log("Payment failed: " + result.error.message);
+        return;
+      }
+
+      log("Payment successful!");
+    }
+
+    window.onload = initTerminal;
+  </script>
+</body>
+</html>
